@@ -290,6 +290,7 @@ class SimpleEval(object):  # pylint: disable=too-few-public-methods
         self.functions = functions
         self.names = names
 
+        # TODO - When dropping python 2.7, switch to LRU cache?
         self.previously_parsed_expressions = {}
 
         self.nodes = {
@@ -336,26 +337,26 @@ class SimpleEval(object):  # pylint: disable=too-few-public-methods
             if f in DISALLOW_FUNCTIONS:
                 raise FeatureNotAvailable('This function {} is a really bad idea.'.format(f))
 
+    def parse(self, expr):
+        # set a copy of the expression aside, so we can give nice errors...
+        self.expr = expr.strip()
+
+        # Return previously ast parsed expression if seen before
+        parsed_ast = self.previously_parsed_expressions.get(self.expr)
+        if parsed_ast:
+            return parsed_ast
+
+        # Add to previously_parsed_ast if not seen before
+        parsed_ast = ast.parse(self.expr).body[0]
+        self.previously_parsed_expressions[self.expr] = parsed_ast
+
+        return parsed_ast
 
     def eval(self, expr):
         """ evaluate an expresssion, using the operators, functions and
             names previously set up. """
 
-        # set a copy of the expression aside, so we can give nice errors...
-
-        self.expr = expr
-
-        # and evaluate:
-        stripped_expr = expr.strip()
-        previously_parsed_ast = self.previously_parsed_expressions.get(stripped_expr)
-        if previously_parsed_ast:
-            # Return previously ast parsed expression if seen before
-            return self._eval(previously_parsed_ast)
-
-        # Add to previously_parsed_ast if not seen before
-        ast_parsed_expr = ast.parse(stripped_expr).body[0].value
-        self.previously_parsed_expressions[stripped_expr] = ast_parsed_expr
-        return self._eval(ast_parsed_expr)
+        return self._eval(self.parse(expr))
 
     def _eval(self, node):
         """ The internal evaluator used on each node in the parsed tree. """
