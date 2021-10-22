@@ -1,5 +1,5 @@
 """
-SimpleEval - (C) 2013-2019 Daniel Fairhead
+SimpleEval - (C) 2013-2021 Daniel Fairhead
 -------------------------------------
 
 An short, easy to use, safe and reasonably extensible expression evaluator.
@@ -52,6 +52,7 @@ Contributors:
 - Birne94 (Daniel Birnstiel) for fixing leaking generators.
 - patricksurry (Patrick Surry) or should return last value, even if falsy.
 - shughes-uk (Samantha Hughes) python w/o 'site' should not fail to import.
+- chongr (Ryan Chong) cached AST
 
 -------------------------------------
 Basic Usage:
@@ -289,9 +290,7 @@ class SimpleEval(object):  # pylint: disable=too-few-public-methods
         self.operators = operators
         self.functions = functions
         self.names = names
-
-        # TODO - When dropping python 2.7, switch to LRU cache?
-        self.previously_parsed_expressions = {}
+        self.parsed_ast = None
 
         self.nodes = {
             ast.Expr: self._eval_expr,
@@ -338,19 +337,19 @@ class SimpleEval(object):  # pylint: disable=too-few-public-methods
                 raise FeatureNotAvailable('This function {} is a really bad idea.'.format(f))
 
     def parse(self, expr):
-        # set a copy of the expression aside, so we can give nice errors...
+        """ Parse a string expression into an AST.
+            - Strip the expr, store it in self.expr
+            - Store the AST in self.parsed_ast and then return it.
+        """
+        stripped_expr = expr.strip()
+        if self.expr == stripped_expr and self.parsed_ast:
+            return self.parsed_ast
+
         self.expr = expr.strip()
+        self.parsed_ast = ast.parse(self.expr).body[0]
 
-        # Return previously ast parsed expression if seen before
-        parsed_ast = self.previously_parsed_expressions.get(self.expr)
-        if parsed_ast:
-            return parsed_ast
+        return self.parsed_ast
 
-        # Add to previously_parsed_ast if not seen before
-        parsed_ast = ast.parse(self.expr).body[0]
-        self.previously_parsed_expressions[self.expr] = parsed_ast
-
-        return parsed_ast
 
     def eval(self, expr):
         """ evaluate an expresssion, using the operators, functions and
@@ -641,6 +640,48 @@ class EvalWithCompoundTypes(SimpleEval):
             self.nodes.update({ast.Name: previous_name_evaller})
 
         return to_return
+
+class MultipleASTCacheMixin(object):
+    """
+        This Mixin gives you a cache of multiple expression ASTs.  So every time you
+        parse an expression it's stored in self.ast_cache, which can save a lot of time in parsing.
+        It's not the default as it will grow indefinately until the object is destroyed.
+
+        To use:
+
+        >>> class CachedEval(MultipleASTCacheMixin, SimpleEval):
+                pass
+
+        or 
+
+        >>> class CachedEval(MultipleASTCacheMixin, EvalWithCompoundTypes):
+                pass
+
+        and use CachedEval as normal.
+
+    """
+    def __init__(self, operators=None, functions=None, names=None):
+        super(MultipleASTCacheMixin, self).__init__(operators=operators, functions=functions, names=names)
+
+        # TODO - When dropping python 2.7, switch to LRU cache?
+        self.ast_cache = {}
+
+    def parse(self, expr):
+        """ Parse a string expression into an AST """
+
+        # Return previously ast parsed expression if seen before
+        parsed_ast = self.ast_cache.get(self.expr)
+        if parsed_ast:
+            self.expr = expr.strip()
+            self.parsed_ast = ast.parse(self.expr).body[0]
+            return parsed_ast
+
+        parsed_ast = super(MultipleASTCacheMixin, self).parse(expr)
+
+        # Add to previously_parsed_ast if not seen before
+        self.ast_cache[self.expr] = parsed_ast
+
+        return parsed_ast
 
 
 def simple_eval(expr, operators=None, functions=None, names=None):

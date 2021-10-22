@@ -910,6 +910,45 @@ class TestExtendingClass(unittest.TestCase):
             e.eval('"  blah  ".strip()')
 
 
+class TestCacheMixin(unittest.TestCase):
+    def setUp(self):
+        class EvalWithCached(simpleeval.MultipleASTCacheMixin, simpleeval.SimpleEval):
+            pass
+        self.evaller = EvalWithCached
+
+    def test_combined_class_works(self):
+        e = self.evaller()
+        self.assertEqual(e.eval('22 + 20'), 42)
+
+    def test_cache_works(self):
+        e = self.evaller()
+        expr = '22 + 20'
+        fake_ast = e.parse('"Tomatoes"')
+        e.ast_cache[expr] = fake_ast
+
+        self.assertEqual(e.eval('22 + 20'), "Tomatoes")
+
+    def test_mixin_with_compound_types(self):
+        class EvalWithCached(simpleeval.MultipleASTCacheMixin, simpleeval.EvalWithCompoundTypes):
+
+            pass
+
+        expr = '22 + 20 + a["b"]'
+
+        e = EvalWithCached(names={"a": {"b": 1000}})
+
+        self.assertEqual(e.eval(expr), 1042)
+        self.assertEqual(e.eval("a['b']"), 1000)
+
+        fake_ast = None #  e.parse('"Tomatoes"')
+        # e.eval('400')
+        e.parsed_ast = None
+        e.expr = ""
+        e.ast_cache[expr] = fake_ast
+
+        self.assertEqual(e.eval(expr), "Tomatoes")
+
+
 class TestExceptions(unittest.TestCase):
     """
         confirm a few attributes exist properly and haven't been
